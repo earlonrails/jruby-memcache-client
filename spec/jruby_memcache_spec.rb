@@ -8,7 +8,8 @@ describe MemCache do
   ["127.0.0.1:11211", "127.0.0.1", "localhost:11211", "localhost"].each do |server|
     before :all do
       @server = server
-      @normalized_server = @server =~ /(.+):(\d+)/ ? @server : "#{@server}:11211" 
+      @normalized_server = @server =~ /(.+):(\d+)/ ? @server : "#{@server}:11211"
+      @big_value = "1" * 5048576 + "1"
     end
 
     before :each do
@@ -243,6 +244,17 @@ describe MemCache do
         @client.set('key', 'val', 0, true)
         @client.set('key2', 'val2', 0, true)
         @client.get_multi(%w/key key2/, true).should == {'key' => 'val', 'key2' => 'val2'}
+      end
+    end
+
+    describe "using set with zip" do
+      it "should raise an error when trying to use a value greater than 1MB" do
+        lambda { @client.set('error', @big_value) }.should raise_error
+      end
+
+      it "should set a value bigger than 1MB and zip it to fit" do
+        lambda { @client.set('zippy', @big_value, 0, false, true) }.should_not raise_error
+        @client.get('zippy', false, true).should_not be_nil
       end
     end
 

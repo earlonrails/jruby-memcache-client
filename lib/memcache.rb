@@ -1,5 +1,6 @@
 require 'java'
 require 'base64'
+require 'zlib'
 
 require File.dirname(__FILE__) + '/java/java_memcached-release_2.5.1.jar'
 
@@ -128,13 +129,13 @@ class MemCache
       @pool.aliveCheck = opts[:pool_use_alive]
       @pool.nagle = opts[:pool_use_nagle]
 
-      # public static final int NATIVE_HASH     = 0;        
+      # public static final int NATIVE_HASH     = 0;
       #     // native String.hashCode();
-      # public static final int OLD_COMPAT_HASH = 1;        
+      # public static final int OLD_COMPAT_HASH = 1;
       #     // original compatibility hashing algorithm (works with other clients)
       # public static final int NEW_COMPAT_HASH = 2;
       #     // new CRC32 based compatibility hashing algorithm (works with other clients)
-      # public static final int CONSISTENT_HASH = 3;        
+      # public static final int CONSISTENT_HASH = 3;
       #     // MD5 Based -- Stops thrashing when a server added or removed
       @pool.hashingAlg = opts[:pool_hashing_algorithm]
 
@@ -176,7 +177,7 @@ class MemCache
   ##
   # Retrieves a value associated with the key from the
   # cache. Retrieves the raw value if the raw parameter is set.
-  def get(key, raw = false)
+  def get(key, raw = false, decompress = false)
     value = @client.get(make_cache_key(key))
     return nil if value.nil?
     unless raw
@@ -191,6 +192,10 @@ class MemCache
           else value
         end
       end
+    end
+
+    if decompress
+      value = Zlib::GzipReader.new(StringIO.new(value)).read
     end
     value
   end
@@ -229,10 +234,21 @@ class MemCache
   # Associates a value with a key in the cache. MemCached will expire
   # the value if an expiration is provided. The raw parameter allows
   # us to store a value without marshalling it first.
-  def set(key, value, expiry = 0, raw = false)
+  def set(key, value, expiry = 0, raw = false, compress = false)
     raise MemCacheError, "Update of readonly cache" if @readonly
+
+    # Zip the string value
+    if compress
+      string_io = StringIO.new
+      gz = Zlib::GzipWriter.new(string_io)
+      gz.write value
+      gz.close
+      value = string_io.string
+    end
+
     value = marshal_value(value) unless raw
     key = make_cache_key(key)
+
     if expiry == 0
       @client.set key, value
     else
